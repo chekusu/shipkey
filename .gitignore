@@ -1,0 +1,5 @@
+node_modules/
+dist/
+shipkey
+*.log
+.DS_Store

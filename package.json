@@ -1,0 +1,21 @@
+{
+  "name": "shipkey",
+  "version": "0.1.0",
+  "type": "module",
+  "bin": {
+    "shipkey": "./dist/index.js"
+  },
+  "scripts": {
+    "dev": "bun run src/index.ts",
+    "build": "bun build src/index.ts --outdir dist --target node",
+    "compile": "bun build src/index.ts --compile --outfile shipkey",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "commander": "^13.0.0"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5.7.0"
+  }
+}
