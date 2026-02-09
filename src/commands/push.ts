@@ -1,12 +1,13 @@
 import { Command } from "commander";
 import { scan } from "../scanner";
 import { OnePasswordBackend } from "../backends/onepassword";
+import { guessProvider, envKeyToField } from "../providers";
 import { resolve, basename } from "path";
 
 export const pushCommand = new Command("push")
   .description("Push env values from local files to 1Password")
   .option("-e, --env <env>", "environment (dev/prod)", "dev")
-  .option("--vault <vault>", "1Password vault name", "Dev")
+  .option("--vault <vault>", "1Password vault name", "shipkey")
   .option("--project <name>", "project name (defaults to directory name)")
   .argument("[dir]", "project directory", ".")
   .action(async (dir: string, opts) => {
@@ -71,19 +72,3 @@ export const pushCommand = new Command("push")
 
     console.log(`\nDone. Saved to vault: ${vault}`);
   });
-
-function guessProvider(key: string): string {
-  const k = key.toUpperCase();
-  if (k.includes("OPENROUTER")) return "OpenRouter";
-  if (k.includes("STRIPE")) return "Stripe";
-  if (k.includes("GITHUB")) return "GitHub OAuth";
-  if (k.includes("FAL")) return "fal.ai";
-  if (k.includes("DATABASE") || k.includes("DB")) return "Database";
-  if (k.includes("REDIS")) return "Redis";
-  if (k.includes("SESSION")) return "Session";
-  return "General";
-}
-
-function envKeyToField(key: string): string {
-  return key.toLowerCase().replace(/_/g, "-");
-}
