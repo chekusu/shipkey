@@ -14,6 +14,91 @@ const TARGETS: Record<string, SyncTarget> = {
   cloudflare: new CloudflareTarget(),
 };
 
+function mergeConfigs(
+  existing: ShipkeyConfig,
+  scanned: ShipkeyConfig
+): ShipkeyConfig {
+  const merged: ShipkeyConfig = {
+    project: existing.project,
+    vault: existing.vault,
+  };
+
+  // Merge providers: keep existing + add new from scan
+  const mergedProviders: NonNullable<ShipkeyConfig["providers"]> = {};
+
+  const existingProviders = existing.providers || {};
+  const scannedProviders = scanned.providers || {};
+  const allNames = new Set([
+    ...Object.keys(existingProviders),
+    ...Object.keys(scannedProviders),
+  ]);
+
+  for (const name of allNames) {
+    const ep = existingProviders[name];
+    const sp = scannedProviders[name];
+
+    if (ep && sp) {
+      // Both exist: merge fields (union), update permissions from scan
+      const fieldSet = new Set([...ep.fields, ...sp.fields]);
+      mergedProviders[name] = {
+        fields: [...fieldSet],
+        ...(ep.guide_url && { guide_url: ep.guide_url }),
+        ...(ep.guide && { guide: ep.guide }),
+        ...(sp.permissions &&
+          sp.permissions.length > 0 && { permissions: sp.permissions }),
+      };
+    } else if (ep) {
+      // Only in existing: keep as-is (user added manually)
+      mergedProviders[name] = ep;
+    } else if (sp) {
+      // Only in scan: add new
+      mergedProviders[name] = sp;
+    }
+  }
+
+  if (Object.keys(mergedProviders).length > 0) {
+    merged.providers = mergedProviders;
+  }
+
+  // Merge targets: keep existing + add new destinations from scan
+  const et = existing.targets;
+  const st = scanned.targets;
+
+  if (et || st) {
+    merged.targets = {};
+
+    for (const key of ["github", "cloudflare"] as const) {
+      const existingTarget = et?.[key] || {};
+      const scannedTarget = st?.[key] || {};
+      const allDests = new Set([
+        ...Object.keys(existingTarget),
+        ...Object.keys(scannedTarget),
+      ]);
+
+      if (allDests.size > 0) {
+        const mergedTarget: TargetConfig = {};
+        for (const dest of allDests) {
+          const eKeys = existingTarget[dest];
+          const sKeys = scannedTarget[dest];
+
+          if (eKeys && sKeys && Array.isArray(eKeys) && Array.isArray(sKeys)) {
+            mergedTarget[dest] = [...new Set([...eKeys, ...sKeys])];
+          } else {
+            mergedTarget[dest] = eKeys || sKeys;
+          }
+        }
+        merged.targets[key] = mergedTarget;
+      }
+    }
+
+    if (Object.keys(merged.targets).length === 0) {
+      delete merged.targets;
+    }
+  }
+
+  return merged;
+}
+
 function corsHeaders(): Record<string, string> {
   return {
     "Access-Control-Allow-Origin": "*",
@@ -346,16 +431,33 @@ export const setupCommand = new Command("setup")
   .argument("[dir]", "project directory", ".")
   .action(async (dir: string, opts: { env: string; port: string; open: boolean }) => {
     const projectRoot = resolve(dir);
-    let config;
+
+    // Always scan project
+    console.log("  Scanning project...\n");
+    const result = await scanProject(projectRoot);
+    printScanSummary(result);
+
+    // Merge with existing config if present
+    let config: ShipkeyConfig;
+    let existing: ShipkeyConfig | null = null;
     try {
-      config = await loadConfig(projectRoot);
+      existing = await loadConfig(projectRoot);
     } catch {
-      console.log("  No shipkey.json found, scanning project...\n");
-      const result = await scanProject(projectRoot);
-      printScanSummary(result);
+      // No existing config
+    }
+
+    if (existing) {
+      config = mergeConfigs(existing, result.config);
+    } else {
       config = result.config;
-      const outPath = join(projectRoot, "shipkey.json");
-      await writeFile(outPath, JSON.stringify(config, null, 2) + "\n");
+    }
+
+    // Write back (always, to capture new fields/permissions)
+    const outPath = join(projectRoot, "shipkey.json");
+    await writeFile(outPath, JSON.stringify(config, null, 2) + "\n");
+    if (existing) {
+      console.log(`\n  ✓ Updated shipkey.json\n`);
+    } else {
       console.log(`\n  ✓ Generated shipkey.json\n`);
     }
 
