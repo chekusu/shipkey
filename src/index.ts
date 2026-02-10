@@ -12,7 +12,7 @@ const program = new Command();
 program
   .name("shipkey")
   .description("Manage developer API keys securely")
-  .version("0.1.6");
+  .version("0.2.0");
 
 program.addCommand(scanCommand);
 program.addCommand(pushCommand);
