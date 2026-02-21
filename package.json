@@ -1,6 +1,6 @@
 {
   "name": "shipkey",
-  "version": "0.2.2",
+  "version": "0.3.0",
   "type": "module",
   "repository": {
     "type": "git",
@@ -16,6 +16,7 @@
     "test": "bun test"
   },
   "dependencies": {
+    "@shipkey/core": "workspace:^",
     "commander": "^13.0.0"
   },
   "devDependencies": {

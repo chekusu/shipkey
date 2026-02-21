@@ -1,6 +1,6 @@
-export type { ProviderDefinition } from "./types";
+export type { ProviderDefinition } from "@shipkey/core";
 export {
   PROVIDERS,
   guessProvider,
   groupByProvider,
-} from "./registry";
+} from "@shipkey/core";
