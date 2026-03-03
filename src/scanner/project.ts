@@ -28,8 +28,10 @@ export interface ProjectScanResult {
 }
 
 // Scan a single directory (no recursion into subdirs for .env files)
+// scanRoot: the directory shipkey scan was invoked from, used as anchor for project name
 export async function scanProject(
-  projectRoot: string
+  projectRoot: string,
+  scanRoot: string = projectRoot
 ): Promise<ProjectScanResult> {
   const [envResult, workflowResult, wranglerResult, gitRepo, pkgResult] =
     await Promise.all([
@@ -64,7 +66,7 @@ export async function scanProject(
     envResult
   );
 
-  const projectName = await detectProjectName(projectRoot);
+  const projectName = await detectProjectName(projectRoot, scanRoot);
 
   const config: ShipkeyConfig = {
     project: projectName,
@@ -92,7 +94,7 @@ export async function walkAndScan(
 ): Promise<Array<{ dir: string; result: ProjectScanResult }>> {
   const dirs = await walkDirsWithEnv(root);
   const results = await Promise.all(
-    dirs.map(async (dir) => ({ dir, result: await scanProject(dir) }))
+    dirs.map(async (dir) => ({ dir, result: await scanProject(dir, root) }))
   );
   return results;
 }
@@ -196,7 +198,7 @@ function buildTargets(
   return targets;
 }
 
-async function detectProjectName(dir: string): Promise<string> {
+async function detectProjectName(dir: string, scanRoot: string): Promise<string> {
   // 1. package.json name
   try {
     const raw = await readFile(join(dir, "package.json"), "utf-8");
@@ -206,28 +208,31 @@ async function detectProjectName(dir: string): Promise<string> {
     // no package.json or invalid
   }
 
-  // 2. Git root + relative path
+  // 2. Git root of scanRoot as anchor (not dir itself, to handle nested git repos)
   try {
     const proc = Bun.spawn(["git", "rev-parse", "--show-toplevel"], {
-      cwd: dir,
+      cwd: scanRoot,
       stdout: "pipe",
       stderr: "pipe",
     });
     const gitRoot = (await new Response(proc.stdout).text()).trim();
-    await proc.exited;
+    const exitCode = await proc.exited;
 
-    if (gitRoot) {
+    if (exitCode === 0 && gitRoot) {
       const repoName = basename(gitRoot);
       const rel = relative(gitRoot, dir);
       if (!rel || rel === ".") return repoName;
-      const suffix = rel.replace(/[\\/]/g, "-");
-      return `${repoName}-${suffix}`;
+      return `${repoName}-${rel.replace(/[\\/]/g, "-")}`;
     }
   } catch {
     // not a git repo or git not available
   }
 
-  // 3. Fallback
+  // 3. Fallback: relative path from scanRoot
+  const rel = relative(scanRoot, dir);
+  if (rel && rel !== ".") {
+    return `${basename(scanRoot)}-${rel.replace(/[\\/]/g, "-")}`;
+  }
   return basename(dir);
 }
 
