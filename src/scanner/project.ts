@@ -1,6 +1,6 @@
-import { basename, join } from "path";
+import { basename, join, relative } from "path";
 import { readFile } from "fs/promises";
-import { scan } from "./index";
+import { scan, scanSingleDir, walkDirsWithEnv } from "./index";
 import { scanWorkflows, detectGitRepo } from "./parsers/workflow";
 import { scanWrangler } from "./parsers/wrangler";
 import { scanPackageJsons } from "./parsers/packagejson";
@@ -27,10 +27,80 @@ export interface ProjectScanResult {
   workflowSecrets: string[];
 }
 
+// Scan a single directory (no recursion into subdirs for .env files)
 export async function scanProject(
   projectRoot: string
 ): Promise<ProjectScanResult> {
-  // Run all scans in parallel
+  const [envResult, workflowResult, wranglerResult, gitRepo, pkgResult] =
+    await Promise.all([
+      scanSingleDir(projectRoot),
+      scanWorkflows(projectRoot),
+      scanWrangler(projectRoot),
+      detectGitRepo(projectRoot),
+      scanPackageJsons(projectRoot),
+    ]);
+
+  const envKeys = collectEnvKeys(envResult);
+
+  const allKeys = new Set(envKeys);
+  for (const secret of workflowResult.secrets) {
+    allKeys.add(secret);
+  }
+
+  const providers = groupByProvider([...allKeys]);
+
+  inferPermissions(
+    providers,
+    pkgResult.dependencies,
+    wranglerResult.bindings,
+    wranglerResult.file,
+    workflowResult.wranglerCommands
+  );
+
+  const targets = buildTargets(
+    workflowResult,
+    wranglerResult,
+    gitRepo,
+    envResult
+  );
+
+  const projectName = await detectProjectName(projectRoot);
+
+  const config: ShipkeyConfig = {
+    project: projectName,
+    vault: "shipkey",
+    providers,
+    ...(Object.keys(targets).length > 0 && { targets }),
+  };
+
+  const stats: ProjectScanStats = {
+    envFiles: envResult.totalFiles,
+    envVars: envResult.totalVars,
+    workflowFiles: workflowResult.files.length,
+    workflowSecrets: workflowResult.secrets.length,
+    gitRepo,
+    wranglerFile: wranglerResult.file,
+    wranglerProjects: wranglerResult.projects,
+  };
+
+  return { config, stats, workflowSecrets: workflowResult.secrets };
+}
+
+// Walk from root, scan every directory that contains .env files
+export async function walkAndScan(
+  root: string
+): Promise<Array<{ dir: string; result: ProjectScanResult }>> {
+  const dirs = await walkDirsWithEnv(root);
+  const results = await Promise.all(
+    dirs.map(async (dir) => ({ dir, result: await scanProject(dir) }))
+  );
+  return results;
+}
+
+// Legacy: full recursive scan used by setup wizard
+export async function scanProjectRecursive(
+  projectRoot: string
+): Promise<ProjectScanResult> {
   const [envResult, workflowResult, wranglerResult, gitRepo, pkgResult] =
     await Promise.all([
       scan(projectRoot),
@@ -40,19 +110,15 @@ export async function scanProject(
       scanPackageJsons(projectRoot),
     ]);
 
-  // Collect all env keys from scanned files (deduplicated)
   const envKeys = collectEnvKeys(envResult);
 
-  // Merge workflow secrets into env keys
   const allKeys = new Set(envKeys);
   for (const secret of workflowResult.secrets) {
     allKeys.add(secret);
   }
 
-  // Group by provider
   const providers = groupByProvider([...allKeys]);
 
-  // Infer permissions from project signals
   inferPermissions(
     providers,
     pkgResult.dependencies,
@@ -61,7 +127,6 @@ export async function scanProject(
     workflowResult.wranglerCommands
   );
 
-  // Build targets
   const targets = buildTargets(
     workflowResult,
     wranglerResult,
@@ -111,14 +176,12 @@ function buildTargets(
 ): NonNullable<ShipkeyConfig["targets"]> {
   const targets: NonNullable<ShipkeyConfig["targets"]> = {};
 
-  // GitHub target: if we have workflow secrets and a git repo
   if (workflow.secrets.length > 0 && gitRepo) {
     targets.github = {
       [gitRepo]: workflow.secrets,
     } as TargetConfig;
   }
 
-  // Cloudflare target: if we have wrangler projects and .dev.vars variables
   if (wrangler.projects.length > 0) {
     const devVarsKeys = collectDevVarsKeys(envResult);
     if (devVarsKeys.length > 0) {
@@ -133,15 +196,39 @@ function buildTargets(
   return targets;
 }
 
-async function detectProjectName(projectRoot: string): Promise<string> {
+async function detectProjectName(dir: string): Promise<string> {
+  // 1. package.json name
   try {
-    const raw = await readFile(join(projectRoot, "package.json"), "utf-8");
+    const raw = await readFile(join(dir, "package.json"), "utf-8");
     const pkg = JSON.parse(raw);
     if (pkg.name && typeof pkg.name === "string") return pkg.name;
   } catch {
     // no package.json or invalid
   }
-  return basename(projectRoot);
+
+  // 2. Git root + relative path
+  try {
+    const proc = Bun.spawn(["git", "rev-parse", "--show-toplevel"], {
+      cwd: dir,
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const gitRoot = (await new Response(proc.stdout).text()).trim();
+    await proc.exited;
+
+    if (gitRoot) {
+      const repoName = basename(gitRoot);
+      const rel = relative(gitRoot, dir);
+      if (!rel || rel === ".") return repoName;
+      const suffix = rel.replace(/[\\/]/g, "-");
+      return `${repoName}-${suffix}`;
+    }
+  } catch {
+    // not a git repo or git not available
+  }
+
+  // 3. Fallback
+  return basename(dir);
 }
 
 export function printScanSummary({ config, stats, workflowSecrets }: ProjectScanResult) {
