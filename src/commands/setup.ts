@@ -1,6 +1,7 @@
 import { Command } from "commander";
 import { resolve, join } from "path";
 import { readFile, writeFile } from "fs/promises";
+import { createInterface } from "readline";
 import { loadConfig, buildSecretRefMap } from "../config";
 import { scanProject, printScanSummary } from "../scanner/project";
 import type { ShipkeyConfig, TargetConfig } from "../config";
@@ -17,6 +18,19 @@ const TARGETS: Record<string, SyncTarget> = {
   cloudflare: new CloudflareTarget(),
 };
 
+async function promptBackend(): Promise<string> {
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  return new Promise((resolve) => {
+    rl.question(
+      "\n  Select a backend:\n    1) 1Password (default)\n    2) Bitwarden\n  Choice [1]: ",
+      (answer) => {
+        rl.close();
+        resolve(answer.trim());
+      }
+    );
+  });
+}
+
 function mergeConfigs(
   existing: ShipkeyConfig,
   scanned: ShipkeyConfig
@@ -24,6 +38,7 @@ function mergeConfigs(
   const merged: ShipkeyConfig = {
     project: existing.project,
     vault: existing.vault,
+    ...(existing.backend && { backend: existing.backend }),
   };
 
   // Merge providers: keep existing + add new from scan
@@ -585,6 +600,12 @@ export const setupCommand = new Command("setup")
       config = mergeConfigs(existing, result.config);
     } else {
       config = result.config;
+    }
+
+    // Prompt for backend if not already set
+    if (!config.backend) {
+      const choice = await promptBackend();
+      config.backend = choice === "2" ? "bitwarden" : "1password";
     }
 
     // Write back (always, to capture new fields/permissions)
