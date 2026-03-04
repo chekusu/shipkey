@@ -1,56 +1,66 @@
 import { Command } from "commander";
 import { getBackend } from "../backends";
 import { loadConfig } from "../config";
-import { resolve, basename } from "path";
+import { walkDirsWithShipkey } from "../scanner";
+import { resolve, relative } from "path";
 
 export const listCommand = new Command("list")
   .description("List keys stored in your password manager")
   .option("-e, --env <env>", "filter by environment")
   .option("--all", "list all projects", false)
-  .option("--project <name>", "project name (defaults to directory name)")
+  .option("--project <name>", "project name")
   .argument("[dir]", "project directory", ".")
   .action(async (dir: string, opts) => {
     const projectRoot = resolve(dir);
-    const project = opts.all ? undefined : (opts.project || basename(projectRoot));
     const env = opts.env;
 
-    let backendName = "1password";
-    try {
-      const config = await loadConfig(projectRoot);
-      if (config.backend) backendName = config.backend;
-    } catch {
-      // No config file — use default backend
-    }
-    const backend = getBackend(backendName);
+    const shipkeyDirs = await walkDirsWithShipkey(projectRoot);
 
-    if (!(await backend.isAvailable())) {
-      console.error(
-        `Error: ${backend.name} CLI not available. Run 'shipkey setup' for installation instructions.`
-      );
+    if (shipkeyDirs.length === 0) {
+      console.error("  No shipkey.json found. Run `shipkey scan` first.");
       process.exit(1);
     }
 
-    const refs = await backend.list(project, env);
+    for (const d of shipkeyDirs) {
+      const relDir = relative(projectRoot, d) || ".";
 
-    if (refs.length === 0) {
-      const scope = opts.all ? "any project" : `${project}${env ? `.${env}` : ""}`;
-      console.log(`No keys found for ${scope}.`);
-      return;
-    }
+      let config;
+      try {
+        config = await loadConfig(d);
+      } catch {
+        continue;
+      }
 
-    // Group by provider
-    const grouped = new Map<string, typeof refs>();
-    for (const ref of refs) {
-      const key = `${ref.provider} (${ref.project}.${ref.env})`;
-      if (!grouped.has(key)) grouped.set(key, []);
-      grouped.get(key)!.push(ref);
-    }
+      const project = opts.all ? undefined : (opts.project || config.project);
+      const backend = getBackend(config.backend);
 
-    console.log(`Found ${refs.length} keys:\n`);
-    for (const [group, items] of grouped) {
-      console.log(`  ${group}`);
-      for (const item of items) {
-        console.log(`    · ${item.field}`);
+      if (!(await backend.isAvailable())) {
+        console.error(
+          `  [${relDir}] ${backend.name} CLI not available.`
+        );
+        continue;
+      }
+
+      const refs = await backend.list(project, env);
+
+      if (refs.length === 0) continue;
+
+      console.log(`\n  [${relDir}]`);
+
+      // Group by provider
+      const grouped = new Map<string, typeof refs>();
+      for (const ref of refs) {
+        const key = `${ref.provider} (${ref.project}.${ref.env})`;
+        if (!grouped.has(key)) grouped.set(key, []);
+        grouped.get(key)!.push(ref);
+      }
+
+      console.log(`  ${refs.length} keys:`);
+      for (const [group, items] of grouped) {
+        console.log(`    ${group}`);
+        for (const item of items) {
+          console.log(`      · ${item.field}`);
+        }
       }
     }
   });

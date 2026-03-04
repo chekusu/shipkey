@@ -1,11 +1,12 @@
 import { Command } from "commander";
-import { resolve } from "path";
+import { resolve, relative } from "path";
 import { getBackend } from "../backends";
 import type { SecretBackend } from "../backends/types";
 import { GitHubTarget } from "../targets/github";
 import { CloudflareTarget } from "../targets/cloudflare";
 import type { SyncTarget } from "../targets/types";
 import { loadConfig, buildSecretRefMap } from "../config";
+import { walkDirsWithShipkey } from "../scanner";
 import type { TargetConfig } from "../config";
 
 const TARGETS: Record<string, SyncTarget> = {
@@ -121,48 +122,57 @@ export const syncCommand = new Command("sync")
   .argument("[dir]", "project directory", ".")
   .action(async (targetArg: string | undefined, dir: string) => {
     const projectRoot = resolve(dir);
-    const config = await loadConfig(projectRoot);
 
-    if (!config.targets) {
-      console.error(
-        'No "targets" configured in shipkey.json. Add a targets section to sync secrets.'
-      );
+    const shipkeyDirs = await walkDirsWithShipkey(projectRoot);
+
+    if (shipkeyDirs.length === 0) {
+      console.error("  No shipkey.json found. Run `shipkey scan` first.");
       process.exit(1);
     }
 
-    const backend = getBackend(config.backend);
-    if (!(await backend.isAvailable())) {
-      console.error(
-        `Error: ${backend.name} CLI not available. Run 'shipkey setup' for installation instructions.`
-      );
-      process.exit(1);
-    }
+    for (const d of shipkeyDirs) {
+      const relDir = relative(projectRoot, d) || ".";
 
-    const refMap = buildSecretRefMap(config, backend);
+      let config;
+      try {
+        config = await loadConfig(d);
+      } catch {
+        console.error(`  ✗ Could not read shipkey.json in ${relDir}`);
+        continue;
+      }
 
-    // Determine which targets to sync
-    const targetNames = targetArg
-      ? [targetArg]
-      : Object.keys(config.targets);
+      if (!config.targets) continue;
 
-    for (const name of targetNames) {
-      const target = TARGETS[name];
-      if (!target) {
+      console.log(`\n  [${relDir}]`);
+
+      const backend = getBackend(config.backend);
+      if (!(await backend.isAvailable())) {
         console.error(
-          `Unknown target: ${name}. Available: ${Object.keys(TARGETS).join(", ")}`
+          `  ✗ ${backend.name} CLI not available. Run 'shipkey setup' for installation instructions.`
         );
         continue;
       }
 
-      const targetConfig =
-        config.targets[name as keyof typeof config.targets];
-      if (!targetConfig) {
-        console.log(
-          `No configuration for target "${name}" in shipkey.json. Skipping.`
-        );
-        continue;
-      }
+      const refMap = buildSecretRefMap(config, backend);
 
-      await syncTarget(target, targetConfig, refMap, backend);
+      const targetNames = targetArg
+        ? [targetArg]
+        : Object.keys(config.targets);
+
+      for (const name of targetNames) {
+        const target = TARGETS[name];
+        if (!target) {
+          console.error(
+            `  Unknown target: ${name}. Available: ${Object.keys(TARGETS).join(", ")}`
+          );
+          continue;
+        }
+
+        const targetConfig =
+          config.targets[name as keyof typeof config.targets];
+        if (!targetConfig) continue;
+
+        await syncTarget(target, targetConfig, refMap, backend);
+      }
     }
   });
