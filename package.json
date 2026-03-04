@@ -16,8 +16,10 @@
     "test": "bun test"
   },
   "dependencies": {
-    "@shipkey/core": "workspace:^",
-    "commander": "^13.0.0"
+    "@shipkey/core": "^0.1.0",
+    "commander": "^13.0.0",
+    "dotenv": "^17.3.1",
+    "dotenv-expand": "^12.0.3"
   },
   "devDependencies": {
     "@types/bun": "latest",
