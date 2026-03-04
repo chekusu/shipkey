@@ -1,6 +1,5 @@
 import { Command } from "commander";
-import { scan } from "../scanner";
-import { walkDirsWithShipkey } from "../scanner";
+import { scanSingleDir, walkDirsWithShipkey } from "../scanner";
 import { getBackend } from "../backends";
 import { guessProvider } from "../providers";
 import { loadConfig } from "../config";
@@ -45,7 +44,7 @@ export const pushCommand = new Command("push")
         continue;
       }
 
-      const result = await scan(d);
+      const result = await scanSingleDir(d);
       const entries = result.groups.flatMap((g) =>
         g.files
           .filter((f) => !f.isTemplate)
