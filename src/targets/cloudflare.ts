@@ -1,3 +1,6 @@
+import { readFile } from "fs/promises";
+import { join } from "path";
+import { homedir } from "os";
 import type { SyncTarget, SyncResult, TargetStatus } from "./types";
 
 export class CloudflareTarget implements SyncTarget {
@@ -15,18 +18,23 @@ export class CloudflareTarget implements SyncTarget {
       return "not_installed";
     }
 
+    // Check auth by reading wrangler config file (avoids unreliable network call in Bun.spawn)
     try {
-      const proc = Bun.spawn(["wrangler", "whoami"], {
-        stdout: "pipe",
-        stderr: "pipe",
-      });
-      const stdout = await new Response(proc.stdout).text();
-      await proc.exited;
-      if (proc.exitCode !== 0 || !stdout.includes("You are logged in")) {
-        return "not_authenticated";
+      const configPath = join(homedir(), "Library", "Preferences", ".wrangler", "config", "default.toml");
+      const config = await readFile(configPath, "utf-8");
+      if (config.includes("oauth_token") || config.includes("api_token")) {
+        return "ready";
       }
-      return "ready";
+      return "not_authenticated";
     } catch {
+      // Fallback: try Linux/other OS path
+      try {
+        const configPath = join(homedir(), ".wrangler", "config", "default.toml");
+        const config = await readFile(configPath, "utf-8");
+        if (config.includes("oauth_token") || config.includes("api_token")) {
+          return "ready";
+        }
+      } catch {}
       return "not_authenticated";
     }
   }
