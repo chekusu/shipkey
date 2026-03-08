@@ -1,11 +1,17 @@
 import type { SecretBackend, SecretRef, SecretEntry } from "./types";
-import { exec as execCmd } from "../exec";
+import { exec as execCmd, execShell as execShellCmd } from "../exec";
+
+const opEnv = {
+  ...process.env,
+  OP_BIOMETRIC_UNLOCK_ENABLED: "true",
+};
 
 async function exec(args: string[]): Promise<string> {
-  return execCmd("op", args, {
-    ...process.env,
-    OP_BIOMETRIC_UNLOCK_ENABLED: "true",
-  });
+  return execCmd("op", args, opEnv);
+}
+
+async function execShell(command: string): Promise<string> {
+  return execShellCmd(command, opEnv);
 }
 
 export class OnePasswordBackend implements SecretBackend {
@@ -45,18 +51,17 @@ export class OnePasswordBackend implements SecretBackend {
 
   async checkStatus(): Promise<"not_installed" | "not_logged_in" | "ready"> {
     try {
-      await exec(["--version"]);
-    } catch {
-      return "not_installed";
-    }
-    try {
       const output = await exec(["account", "list", "--format=json"]);
       const accounts = JSON.parse(output);
       if (!Array.isArray(accounts) || accounts.length === 0) {
         return "not_logged_in";
       }
       return "ready";
-    } catch {
+    } catch (e: any) {
+      const msg = e?.message ?? "";
+      if (msg.includes("not found") || msg.includes("ENOENT")) {
+        return "not_installed";
+      }
       return "not_logged_in";
     }
   }
@@ -119,46 +124,41 @@ export class OnePasswordBackend implements SecretBackend {
   ): Promise<Map<string, { section: string; label: string }[]>> {
     const result = new Map<string, { section: string; label: string }[]>();
     try {
-      const raw = await exec([
-        "item",
-        "list",
-        "--vault",
-        vault,
-        "--format",
-        "json",
-      ]);
-      const items = JSON.parse(raw) as { title: string; id: string }[];
+      // Use pipe to fetch all item details in a single shell command (2 op processes)
+      // instead of N+1 separate op processes
+      const safeVault = vault.replace(/'/g, "'\\''");
+      const raw = await execShell(
+        `op item list --vault '${safeVault}' --format json | op item get - --vault '${safeVault}' --format json`
+      );
 
-      // Fetch all items in one sequential batch (sequential to reduce biometric prompts)
+      // op item get with piped input returns JSON array or newline-delimited JSON
+      let items: any[];
+      const trimmed = raw.trim();
+      if (trimmed.startsWith("[")) {
+        items = JSON.parse(trimmed);
+      } else {
+        // Newline-delimited JSON objects
+        items = trimmed
+          .split("\n")
+          .filter((line) => line.trim())
+          .map((line) => JSON.parse(line));
+      }
+
       for (const item of items) {
-        try {
-          const detail = await exec([
-            "item",
-            "get",
-            item.id,
-            "--vault",
-            vault,
-            "--format",
-            "json",
-          ]);
-          const parsed = JSON.parse(detail);
-          if (parsed.fields) {
-            result.set(
-              item.title,
-              parsed.fields
-                .filter((f: any) => f.section?.label && f.label)
-                .map((f: any) => ({
-                  section: f.section.label as string,
-                  label: f.label as string,
-                }))
-            );
-          }
-        } catch {
-          // skip items that can't be read
+        if (item.fields && item.title) {
+          result.set(
+            item.title,
+            item.fields
+              .filter((f: any) => f.section?.label && f.label)
+              .map((f: any) => ({
+                section: f.section.label as string,
+                label: f.label as string,
+              }))
+          );
         }
       }
     } catch {
-      // vault doesn't exist or not accessible
+      // vault doesn't exist, not accessible, or pipe failed
     }
     return result;
   }

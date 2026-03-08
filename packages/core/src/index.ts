@@ -21,4 +21,4 @@ export {
 } from "./providers/registry";
 
 // Utilities
-export { exec } from "./exec";
+export { exec, execShell } from "./exec";
