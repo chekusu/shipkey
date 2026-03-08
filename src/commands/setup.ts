@@ -476,9 +476,15 @@ function startServer(
         return new Response(null, { status: 204, headers: corsHeaders() });
       }
 
+      // Allow frontend to override env via query param or request body
+      function resolveEnv(urlObj: URL, body?: any): string {
+        return urlObj.searchParams.get("env") || body?.env || env;
+      }
+
       try {
         if (url.pathname === "/api/config" && req.method === "GET") {
           const config = await reloadConfig();
+          const currentEnv = resolveEnv(url);
           const providers: Record<string, unknown> = {};
           if (config.providers) {
             for (const [name, provider] of Object.entries(config.providers)) {
@@ -489,7 +495,7 @@ function startServer(
           return json({
             project: config.project,
             vault: config.vault,
-            env,
+            env: currentEnv,
             backend: config.backend || "1password",
             providers,
             targets: config.targets || {},
@@ -498,7 +504,8 @@ function startServer(
 
         if (url.pathname === "/api/status" && req.method === "GET") {
           const config = await reloadConfig();
-          const { statuses, backendStatus } = await getFieldStatus(config, env, backend);
+          const currentEnv = resolveEnv(url);
+          const { statuses, backendStatus } = await getFieldStatus(config, currentEnv, backend);
 
           // Check target CLI status
           const targetStatus: Record<string, TargetStatus> = {};
@@ -523,13 +530,15 @@ function startServer(
 
         if (url.pathname === "/api/push" && req.method === "POST") {
           const config = await reloadConfig();
-          return handlePush(config, env, projectRoot, backend);
+          const currentEnv = resolveEnv(url);
+          return handlePush(config, currentEnv, projectRoot, backend);
         }
 
         if (url.pathname === "/api/store" && req.method === "POST") {
           const config = await reloadConfig();
           const body = await req.json();
-          return handleStore(config, env, projectRoot, body, backend);
+          const currentEnv = resolveEnv(url, body);
+          return handleStore(config, currentEnv, projectRoot, body, backend);
         }
 
         if (url.pathname === "/api/sync" && req.method === "POST") {
