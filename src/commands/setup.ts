@@ -333,67 +333,66 @@ async function handleSync(
   }
 
   const refMap = buildSecretRefMap(config, backend, env);
-  const results: { destination: string; synced: string[]; failed: string[] }[] = [];
+  const results: { destination: string; synced: string[]; failed: { name: string; error: string }[] }[] = [];
 
   for (const [destination, secretRefs] of Object.entries(targetConfig)) {
     const secrets: { name: string; value: string }[] = [];
+    const readFailed: { name: string; error: string }[] = [];
+
+    const readSecret = async (envKey: string) => {
+      const inlineRef = refMap.get(envKey);
+      if (inlineRef && "readRaw" in backend) {
+        try {
+          const value = await (backend as any).readRaw(inlineRef);
+          secrets.push({ name: envKey, value });
+          return;
+        } catch {
+          // fall through to standard read
+        }
+      }
+      try {
+        const providerEntry = Object.entries(config.providers || {}).find(
+          ([, p]) => p.fields.includes(envKey)
+        );
+        if (!providerEntry) {
+          readFailed.push({ name: envKey, error: "No provider found for this key" });
+          return;
+        }
+        const value = await backend.read({
+          vault: config.vault,
+          provider: providerEntry[0],
+          project: config.project,
+          env,
+          field: envKey,
+        });
+        secrets.push({ name: envKey, value });
+      } catch (err) {
+        readFailed.push({ name: envKey, error: "Key not found in password manager — store it first" });
+      }
+    };
 
     if (Array.isArray(secretRefs)) {
       for (const envKey of secretRefs) {
-        const inlineRef = refMap.get(envKey);
-        if (inlineRef && "readRaw" in backend) {
-          try {
-            const value = await (backend as any).readRaw(inlineRef);
-            secrets.push({ name: envKey, value });
-          } catch {
-            // skip unresolvable
-          }
-        } else {
-          // Try reading via the standard read() path
-          try {
-            // Build a SecretRef from config
-            const providerEntry = Object.entries(config.providers || {}).find(
-              ([, p]) => p.fields.includes(envKey)
-            );
-            if (!providerEntry) continue;
-            const value = await backend.read({
-              vault: config.vault,
-              provider: providerEntry[0],
-              project: config.project,
-              env,
-              field: envKey,
-            });
-            secrets.push({ name: envKey, value });
-          } catch {
-            // skip unresolvable
-          }
-        }
+        await readSecret(envKey);
       }
     } else {
       for (const [name, ref] of Object.entries(secretRefs)) {
-        try {
-          if (ref.startsWith("op://") && "readRaw" in backend) {
+        if (typeof ref === "string" && ref.startsWith("op://") && "readRaw" in backend) {
+          try {
             const value = await (backend as any).readRaw(ref);
             secrets.push({ name, value });
-          } else {
-            // Try resolving through config
-            const providerEntry = Object.entries(config.providers || {}).find(
-              ([, p]) => p.fields.includes(name)
-            );
-            if (!providerEntry) continue;
-            const value = await backend.read({
-              vault: config.vault,
-              provider: providerEntry[0],
-              project: config.project,
-              env,
-              field: name,
-            });
-            secrets.push({ name, value });
+          } catch {
+            readFailed.push({ name, error: "Key not found in password manager — store it first" });
           }
-        } catch {
-          // skip unresolvable
+        } else {
+          await readSecret(name);
         }
       }
+    }
+
+    if (secrets.length === 0 && readFailed.length > 0) {
+      results.push({ destination, synced: [], failed: readFailed });
+      continue;
     }
 
     if (secrets.length === 0) {
@@ -405,7 +404,10 @@ async function handleSync(
     results.push({
       destination,
       synced: result.success,
-      failed: result.failed.map((f) => f.name),
+      failed: [
+        ...readFailed,
+        ...result.failed.map((f) => ({ name: f.name, error: f.error })),
+      ],
     });
   }
 
