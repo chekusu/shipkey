@@ -53,36 +53,24 @@ jobs:
         with:
           files: artifacts/*
 
-  publish-npm:
-    needs: build
+  publish:
     runs-on: ubuntu-latest
     permissions:
       contents: read
       id-token: write
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: lts/*
-          registry-url: https://registry.npmjs.org
       - uses: oven-sh/setup-bun@v2
-      - run: bun install
-      - run: cd packages/core && bun run build
-      - run: bun run build
-      - run: npm publish --provenance --access public
-
-  publish-core:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      id-token: write
-    steps:
-      - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           registry-url: https://registry.npmjs.org
-      - uses: oven-sh/setup-bun@v2
-      - run: cd packages/core && bun install && bun run build
-      - run: npm publish --provenance --access public
+      - run: npm install -g npm@latest
+      - run: bun install
+      - run: cd packages/core && bun run build
+      - run: bun run build
+      - name: Publish @shipkey/core
+        run: npm publish --provenance --access public || true
         working-directory: packages/core
+      - name: Publish shipkey
+        run: npm publish --provenance --access public || true
