@@ -18,7 +18,7 @@ shipkey solves all of this.
 ## Quick Start
 
 ```bash
-# Install
+# Install (standalone binary)
 curl -fsSL https://shipkey.dev/install.sh | bash
 
 # Scan your project and launch the setup wizard
@@ -26,6 +26,37 @@ shipkey setup
 ```
 
 > **Tip:** `shipkey setup` will automatically open a web-based wizard connected to a local API server, guiding you through each provider with step-by-step instructions and saving keys to your password manager (1Password or Bitwarden).
+
+### Install via npm
+
+You can also install shipkey as a project devDependency to pin the version per project:
+
+```bash
+# npm
+npm install -D shipkey
+
+# bun
+bun add -d shipkey
+```
+
+Then run via `npx` / `bunx`:
+
+```bash
+npx shipkey setup
+bunx shipkey pull
+```
+
+Or add scripts to your `package.json`:
+
+```json
+{
+  "scripts": {
+    "setup": "shipkey setup",
+    "keys:pull": "shipkey pull",
+    "keys:push": "shipkey push"
+  }
+}
+```
 
 ## How It Works
 

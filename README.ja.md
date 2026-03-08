@@ -27,6 +27,37 @@ shipkey setup
 
 > **ヒント：** `shipkey setup` を実行すると、ローカル API サーバーに接続されたウェブウィザードが自動的に開き、各プロバイダのキー設定をパスワードマネージャー（1Password または Bitwarden）と連携してステップバイステップでガイドします。
 
+### npm でインストール
+
+プロジェクトの devDependency としてインストールし、バージョンを固定することもできます：
+
+```bash
+# npm
+npm install -D shipkey
+
+# bun
+bun add -d shipkey
+```
+
+`npx` / `bunx` で実行：
+
+```bash
+npx shipkey setup
+bunx shipkey pull
+```
+
+または `package.json` にスクリプトを追加：
+
+```json
+{
+  "scripts": {
+    "setup": "shipkey setup",
+    "keys:pull": "shipkey pull",
+    "keys:push": "shipkey push"
+  }
+}
+```
+
 ## 仕組み
 
 ```

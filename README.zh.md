@@ -27,6 +27,37 @@ shipkey setup
 
 > **提示：** `shipkey setup` 会自动打开一个网页配置向导，连接本地 API 服务，引导你逐步配置每个服务商的密钥并保存到密码管理器（1Password 或 Bitwarden）。
 
+### 通过 npm 安装
+
+也可以作为项目 devDependency 安装，锁定每个项目的版本：
+
+```bash
+# npm
+npm install -D shipkey
+
+# bun
+bun add -d shipkey
+```
+
+通过 `npx` / `bunx` 运行：
+
+```bash
+npx shipkey setup
+bunx shipkey pull
+```
+
+或者在 `package.json` 中添加脚本：
+
+```json
+{
+  "scripts": {
+    "setup": "shipkey setup",
+    "keys:pull": "shipkey pull",
+    "keys:push": "shipkey push"
+  }
+}
+```
+
 ## 工作流程
 
 ```
