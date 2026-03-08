@@ -6,13 +6,14 @@ import { pullCommand } from "./commands/pull";
 import { listCommand } from "./commands/list";
 import { syncCommand } from "./commands/sync";
 import { setupCommand } from "./commands/setup";
+import pkg from "../package.json";
 
 const program = new Command();
 
 program
   .name("shipkey")
   .description("Manage developer API keys securely")
-  .version("0.2.1");
+  .version(pkg.version);
 
 program.addCommand(scanCommand);
 program.addCommand(pushCommand);
