@@ -24,6 +24,7 @@ function mergeConfigs(
   const merged: ShipkeyConfig = {
     project: existing.project,
     vault: existing.vault,
+    ...(existing.backend && { backend: existing.backend }),
   };
 
   // Merge providers: keep existing + add new from scan
