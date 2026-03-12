@@ -175,6 +175,12 @@ export const PROVIDERS: ProviderDefinition[] = [
   },
   // --- Web3 ---
   {
+    name: "Coinbase",
+    patterns: [/COINBASE/i],
+    guide_url: "https://portal.cdp.coinbase.com/access/api",
+    guide: "Coinbase Developer Platform > Access > API Keys",
+  },
+  {
     name: "Alchemy",
     patterns: [/ALCHEMY/i],
     guide_url: "https://dashboard.alchemy.com/",
