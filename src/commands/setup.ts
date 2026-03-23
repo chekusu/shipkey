@@ -265,7 +265,7 @@ async function handleStore(
   // Write to local env file
   if (Object.keys(localEnvVars).length > 0) {
     try {
-      await writeEnvFile(projectRoot, localEnvVars);
+      await writeEnvFile(projectRoot, localEnvVars, env);
     } catch {
       // Don't fail the whole request if local write fails
     }
@@ -442,7 +442,7 @@ async function handlePush(
   }
 }
 
-function startServer(
+export function startServer(
   configPath: string,
   env: string,
   projectRoot: string,

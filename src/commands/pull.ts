@@ -67,7 +67,7 @@ export const pullCommand = new Command("pull")
     for (const e of entries) {
       envVars[e.key] = e.value;
     }
-    const envFile = await writeEnvFile(projectRoot, envVars);
+    const envFile = await writeEnvFile(projectRoot, envVars, env);
     console.log(`\n  ${TICK} Updated ${envFile}`);
 
     // Generate .envrc
@@ -98,7 +98,7 @@ export const pullCommand = new Command("pull")
 
     // Generate .dev.vars (merge with existing content)
     // Skip if writeEnvFile already wrote to .dev.vars (Cloudflare Workers project)
-    if (opts.devVars && envFile !== ".dev.vars") {
+    if (opts.devVars && !envFile.startsWith(".dev.vars")) {
       const devVarsPath = join(projectRoot, ".dev.vars");
       let existingContent = "";
       try {

@@ -362,6 +362,91 @@ describe("e2e: multi-line values through full pull pipeline", () => {
     expect(content).toContain("NEW_KEY=value");
   });
 
+  test("pull with env=dev writes to .env.development.local", async () => {
+    const backend = new MockBackend();
+    backend.seed("OpenAI", "myapp", "dev", "OPENAI_API_KEY", "sk-dev-123");
+
+    const refs = await backend.list("myapp", "dev");
+    const envVars: Record<string, string> = {};
+    for (const ref of refs) {
+      envVars[ref.field] = await backend.read(ref);
+    }
+
+    const envFile = await writeEnvFile(TMP, envVars, "dev");
+    expect(envFile).toBe(".env.development.local");
+    const content = readFileSync(join(TMP, ".env.development.local"), "utf-8");
+    expect(content).toContain("OPENAI_API_KEY=sk-dev-123");
+  });
+
+  test("pull with env=prod writes to .env.production.local", async () => {
+    const backend = new MockBackend();
+    backend.seed("OpenAI", "myapp", "prod", "OPENAI_API_KEY", "sk-prod-456");
+
+    const refs = await backend.list("myapp", "prod");
+    const envVars: Record<string, string> = {};
+    for (const ref of refs) {
+      envVars[ref.field] = await backend.read(ref);
+    }
+
+    const envFile = await writeEnvFile(TMP, envVars, "prod");
+    expect(envFile).toBe(".env.production.local");
+    const content = readFileSync(join(TMP, ".env.production.local"), "utf-8");
+    expect(content).toContain("OPENAI_API_KEY=sk-prod-456");
+  });
+
+  test("pull with env=dev + Cloudflare writes to .dev.vars", async () => {
+    writeFileSync(join(TMP, "wrangler.toml"), "name = 'worker'\n");
+    const envFile = await writeEnvFile(TMP, { SECRET: "dev_val" }, "dev");
+    expect(envFile).toBe(".dev.vars");
+  });
+
+  test("pull with env=prod + Cloudflare writes to .dev.vars.production", async () => {
+    writeFileSync(join(TMP, "wrangler.toml"), "name = 'worker'\n");
+    const envFile = await writeEnvFile(TMP, { SECRET: "prod_val" }, "prod");
+    expect(envFile).toBe(".dev.vars.production");
+    const content = readFileSync(join(TMP, ".dev.vars.production"), "utf-8");
+    expect(content).toContain("SECRET=prod_val");
+  });
+
+  test("pull dev and prod create separate files, no cross-contamination", async () => {
+    const backend = new MockBackend();
+    backend.seed("OpenAI", "myapp", "dev", "OPENAI_API_KEY", "sk-dev");
+    backend.seed("OpenAI", "myapp", "prod", "OPENAI_API_KEY", "sk-prod");
+
+    // Pull dev
+    const devRefs = await backend.list("myapp", "dev");
+    const devVars: Record<string, string> = {};
+    for (const ref of devRefs) devVars[ref.field] = await backend.read(ref);
+    await writeEnvFile(TMP, devVars, "dev");
+
+    // Pull prod
+    const prodRefs = await backend.list("myapp", "prod");
+    const prodVars: Record<string, string> = {};
+    for (const ref of prodRefs) prodVars[ref.field] = await backend.read(ref);
+    await writeEnvFile(TMP, prodVars, "prod");
+
+    const devContent = readFileSync(join(TMP, ".env.development.local"), "utf-8");
+    const prodContent = readFileSync(join(TMP, ".env.production.local"), "utf-8");
+
+    expect(devContent).toContain("OPENAI_API_KEY=sk-dev");
+    expect(devContent).not.toContain("sk-prod");
+    expect(prodContent).toContain("OPENAI_API_KEY=sk-prod");
+    expect(prodContent).not.toContain("sk-dev");
+  });
+
+  test("pull without env param writes to .env (backward compat)", async () => {
+    const backend = new MockBackend();
+    backend.seed("OpenAI", "myapp", "prod", "OPENAI_API_KEY", "sk-123");
+
+    const refs = await backend.list("myapp", "prod");
+    const envVars: Record<string, string> = {};
+    for (const ref of refs) envVars[ref.field] = await backend.read(ref);
+
+    // No env param — backward compat
+    const envFile = await writeEnvFile(TMP, envVars);
+    expect(envFile).toBe(".env");
+  });
+
   test("push then pull round-trip preserves multi-line values", async () => {
     const backend = new MockBackend();
 

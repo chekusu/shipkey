@@ -43,6 +43,66 @@ describe("detectEnvFile", () => {
     const result = await detectEnvFile(TMP);
     expect(result).toBe(".dev.vars");
   });
+
+  // --- Multi-environment tests (env parameter) ---
+
+  test("env=dev + Cloudflare → .dev.vars", async () => {
+    writeFileSync(join(TMP, "wrangler.toml"), "name = 'worker'\n");
+    expect(await detectEnvFile(TMP, "dev")).toBe(".dev.vars");
+  });
+
+  test("env=prod + Cloudflare → .dev.vars.production", async () => {
+    writeFileSync(join(TMP, "wrangler.toml"), "name = 'worker'\n");
+    expect(await detectEnvFile(TMP, "prod")).toBe(".dev.vars.production");
+  });
+
+  test("env=staging + Cloudflare → .dev.vars.staging", async () => {
+    writeFileSync(join(TMP, "wrangler.toml"), "name = 'worker'\n");
+    expect(await detectEnvFile(TMP, "staging")).toBe(".dev.vars.staging");
+  });
+
+  test("env=dev + regular project → .env.development.local", async () => {
+    expect(await detectEnvFile(TMP, "dev")).toBe(".env.development.local");
+  });
+
+  test("env=prod + regular project → .env.production.local", async () => {
+    expect(await detectEnvFile(TMP, "prod")).toBe(".env.production.local");
+  });
+
+  test("env=staging + regular project → .env.staging.local", async () => {
+    expect(await detectEnvFile(TMP, "staging")).toBe(".env.staging.local");
+  });
+
+  test("env=dev + regular project ignores existing .env", async () => {
+    writeFileSync(join(TMP, ".env"), "FOO=bar\n");
+    expect(await detectEnvFile(TMP, "dev")).toBe(".env.development.local");
+  });
+
+  test("env=prod + regular project ignores existing .env.local", async () => {
+    writeFileSync(join(TMP, ".env.local"), "FOO=bar\n");
+    expect(await detectEnvFile(TMP, "prod")).toBe(".env.production.local");
+  });
+
+  // --- Backward compatibility (no env parameter) ---
+
+  test("no env + Cloudflare → .dev.vars (backward compat)", async () => {
+    writeFileSync(join(TMP, "wrangler.toml"), "name = 'worker'\n");
+    expect(await detectEnvFile(TMP)).toBe(".dev.vars");
+  });
+
+  test("no env + existing .env → .env (backward compat)", async () => {
+    writeFileSync(join(TMP, ".env"), "FOO=bar\n");
+    expect(await detectEnvFile(TMP)).toBe(".env");
+  });
+
+  test("no env + existing .env.local → .env.local (backward compat)", async () => {
+    writeFileSync(join(TMP, ".env.local"), "FOO=bar\n");
+    expect(await detectEnvFile(TMP)).toBe(".env.local");
+  });
+
+  test("no env + empty dir → .env (backward compat)", async () => {
+    expect(await detectEnvFile(TMP)).toBe(".env");
+  });
 });
 
 describe("writeEnvFile", () => {
@@ -116,6 +176,127 @@ describe("writeEnvFile", () => {
     writeFileSync(join(TMP, "wrangler.toml"), "name = 'worker'\n");
     const filename2 = await writeEnvFile(TMP, { KEY2: "val2" });
     expect(filename2).toBe(".dev.vars");
+  });
+});
+
+describe("writeEnvFile — multi-environment", () => {
+  test("env=dev writes to .env.development.local for regular project", async () => {
+    const filename = await writeEnvFile(TMP, { KEY: "dev_val" }, "dev");
+    expect(filename).toBe(".env.development.local");
+    expect(existsSync(join(TMP, ".env.development.local"))).toBe(true);
+    const content = readFileSync(join(TMP, ".env.development.local"), "utf-8");
+    expect(content).toContain("KEY=dev_val");
+  });
+
+  test("env=prod writes to .env.production.local for regular project", async () => {
+    const filename = await writeEnvFile(TMP, { KEY: "prod_val" }, "prod");
+    expect(filename).toBe(".env.production.local");
+    expect(existsSync(join(TMP, ".env.production.local"))).toBe(true);
+    const content = readFileSync(join(TMP, ".env.production.local"), "utf-8");
+    expect(content).toContain("KEY=prod_val");
+  });
+
+  test("env=dev writes to .dev.vars for Cloudflare project", async () => {
+    writeFileSync(join(TMP, "wrangler.toml"), "name = 'worker'\n");
+    const filename = await writeEnvFile(TMP, { SECRET: "dev123" }, "dev");
+    expect(filename).toBe(".dev.vars");
+    const content = readFileSync(join(TMP, ".dev.vars"), "utf-8");
+    expect(content).toContain("SECRET=dev123");
+  });
+
+  test("env=prod writes to .dev.vars.production for Cloudflare project", async () => {
+    writeFileSync(join(TMP, "wrangler.toml"), "name = 'worker'\n");
+    const filename = await writeEnvFile(TMP, { SECRET: "prod123" }, "prod");
+    expect(filename).toBe(".dev.vars.production");
+    const content = readFileSync(join(TMP, ".dev.vars.production"), "utf-8");
+    expect(content).toContain("SECRET=prod123");
+  });
+
+  test("dev and prod write to separate files (no cross-contamination)", async () => {
+    await writeEnvFile(TMP, { API_KEY: "dev_key", DEV_ONLY: "yes" }, "dev");
+    await writeEnvFile(TMP, { API_KEY: "prod_key", PROD_ONLY: "yes" }, "prod");
+
+    const devContent = readFileSync(join(TMP, ".env.development.local"), "utf-8");
+    const prodContent = readFileSync(join(TMP, ".env.production.local"), "utf-8");
+
+    // Dev file has dev values only
+    expect(devContent).toContain("API_KEY=dev_key");
+    expect(devContent).toContain("DEV_ONLY=yes");
+    expect(devContent).not.toContain("prod_key");
+    expect(devContent).not.toContain("PROD_ONLY");
+
+    // Prod file has prod values only
+    expect(prodContent).toContain("API_KEY=prod_key");
+    expect(prodContent).toContain("PROD_ONLY=yes");
+    expect(prodContent).not.toContain("dev_key");
+    expect(prodContent).not.toContain("DEV_ONLY");
+  });
+
+  test("Cloudflare dev and prod write to separate files", async () => {
+    writeFileSync(join(TMP, "wrangler.toml"), "name = 'worker'\n");
+    await writeEnvFile(TMP, { TOKEN: "dev_tok" }, "dev");
+    await writeEnvFile(TMP, { TOKEN: "prod_tok" }, "prod");
+
+    const devContent = readFileSync(join(TMP, ".dev.vars"), "utf-8");
+    const prodContent = readFileSync(join(TMP, ".dev.vars.production"), "utf-8");
+
+    expect(devContent).toContain("TOKEN=dev_tok");
+    expect(devContent).not.toContain("prod_tok");
+    expect(prodContent).toContain("TOKEN=prod_tok");
+    expect(prodContent).not.toContain("dev_tok");
+  });
+
+  test("env-specific write merges with existing env-specific file", async () => {
+    writeFileSync(join(TMP, ".env.development.local"), "EXISTING=keep_me\n");
+    await writeEnvFile(TMP, { NEW_KEY: "added" }, "dev");
+
+    const content = readFileSync(join(TMP, ".env.development.local"), "utf-8");
+    expect(content).toContain("EXISTING=keep_me");
+    expect(content).toContain("NEW_KEY=added");
+  });
+
+  test("env-specific write does not touch unrelated env files", async () => {
+    writeFileSync(join(TMP, ".env"), "BASE=val\n");
+    writeFileSync(join(TMP, ".env.local"), "LOCAL=val\n");
+    await writeEnvFile(TMP, { SECRET: "s" }, "prod");
+
+    // Original files untouched
+    expect(readFileSync(join(TMP, ".env"), "utf-8")).toBe("BASE=val\n");
+    expect(readFileSync(join(TMP, ".env.local"), "utf-8")).toBe("LOCAL=val\n");
+    // New file created
+    expect(existsSync(join(TMP, ".env.production.local"))).toBe(true);
+  });
+
+  test("no env param still writes to .env (backward compat)", async () => {
+    const filename = await writeEnvFile(TMP, { KEY: "val" });
+    expect(filename).toBe(".env");
+    expect(existsSync(join(TMP, ".env"))).toBe(true);
+  });
+
+  test("no env param with wrangler.toml still writes to .dev.vars (backward compat)", async () => {
+    writeFileSync(join(TMP, "wrangler.toml"), "name = 'worker'\n");
+    const filename = await writeEnvFile(TMP, { KEY: "val" });
+    expect(filename).toBe(".dev.vars");
+  });
+
+  test("no env param with existing .env.local writes to .env.local (backward compat)", async () => {
+    writeFileSync(join(TMP, ".env.local"), "OLD=val\n");
+    const filename = await writeEnvFile(TMP, { NEW: "val" });
+    expect(filename).toBe(".env.local");
+    const content = readFileSync(join(TMP, ".env.local"), "utf-8");
+    expect(content).toContain("OLD=val");
+    expect(content).toContain("NEW=val");
+  });
+
+  test("repeated env-specific writes update in-place, no duplication", async () => {
+    await writeEnvFile(TMP, { KEY: "v1" }, "dev");
+    await writeEnvFile(TMP, { KEY: "v2" }, "dev");
+
+    const content = readFileSync(join(TMP, ".env.development.local"), "utf-8");
+    const matches = content.match(/KEY=/g);
+    expect(matches).toHaveLength(1);
+    expect(content).toContain("KEY=v2");
+    expect(content).not.toContain("KEY=v1");
   });
 });
 

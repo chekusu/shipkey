@@ -14,16 +14,31 @@ async function fileExists(path: string): Promise<boolean> {
 }
 
 /**
- * Detect which env file to write to based on the project root contents.
+ * Detect which env file to write to based on the project root contents and environment.
  *
- * Priority:
- *  1. `wrangler.toml` exists → `.dev.vars` (Cloudflare Workers convention)
+ * When `env` is provided:
+ *  - Cloudflare Workers (`wrangler.toml`): dev → `.dev.vars`, prod → `.dev.vars.production`
+ *  - Other projects: dev → `.env.development.local`, prod → `.env.production.local`
+ *
+ * When `env` is omitted (backward-compatible):
+ *  1. `wrangler.toml` exists → `.dev.vars`
  *  2. `.env` exists → `.env`
  *  3. `.env.local` exists → `.env.local`
  *  4. default → `.env`
  */
-export async function detectEnvFile(projectRoot: string): Promise<string> {
-  if (await fileExists(join(projectRoot, "wrangler.toml"))) {
+export async function detectEnvFile(projectRoot: string, env?: string): Promise<string> {
+  const isCloudflare = await fileExists(join(projectRoot, "wrangler.toml"));
+
+  if (env) {
+    if (isCloudflare) {
+      return env === "dev" ? ".dev.vars" : `.dev.vars.${env === "prod" ? "production" : env}`;
+    }
+    const envName = env === "prod" ? "production" : env === "dev" ? "development" : env;
+    return `.env.${envName}.local`;
+  }
+
+  // Backward-compatible: no env specified
+  if (isCloudflare) {
     return ".dev.vars";
   }
   if (await fileExists(join(projectRoot, ".env"))) {
@@ -223,9 +238,10 @@ export function mergeEnvContent(
  */
 export async function writeEnvFile(
   projectRoot: string,
-  envVars: Record<string, string>
+  envVars: Record<string, string>,
+  env?: string
 ): Promise<string> {
-  const envFile = await detectEnvFile(projectRoot);
+  const envFile = await detectEnvFile(projectRoot, env);
   const envPath = join(projectRoot, envFile);
 
   // Read existing content
