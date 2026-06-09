@@ -38,7 +38,7 @@ export const pullCommand = new Command("pull")
 
     console.log(`Pulling keys for ${project}.${env}...\n`);
 
-    const refs = await backend.list(project, env);
+    const refs = await backend.list(project, env, vault);
 
     if (refs.length === 0) {
       console.log(`No keys found for ${project}.${env} in vault ${vault}.`);

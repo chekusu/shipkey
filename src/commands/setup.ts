@@ -572,7 +572,8 @@ export function startServer(
         if (url.pathname === "/api/sync" && req.method === "POST") {
           const config = await reloadConfig();
           const body = await req.json();
-          return handleSync(config, env, body, backend);
+          const currentEnv = resolveEnv(url, body);
+          return handleSync(config, currentEnv, body, backend);
         }
 
         return json({ error: "Not found" }, 404);

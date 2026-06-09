@@ -7,6 +7,7 @@ import { BULLET } from "../symbols";
 export const listCommand = new Command("list")
   .description("List keys stored in your password manager")
   .option("-e, --env <env>", "filter by environment")
+  .option("--vault <vault>", "Vault or folder name (defaults to shipkey.json vault)")
   .option("--all", "list all projects", false)
   .option("--project <name>", "project name (defaults to directory name)")
   .argument("[dir]", "project directory", ".")
@@ -16,9 +17,11 @@ export const listCommand = new Command("list")
     const env = opts.env;
 
     let backendName = "1password";
+    let vault: string | undefined = opts.vault;
     try {
       const config = await loadConfig(projectRoot);
       if (config.backend) backendName = config.backend;
+      if (!vault && config.vault) vault = config.vault;
     } catch {
       // No config file — use default backend
     }
@@ -31,7 +34,7 @@ export const listCommand = new Command("list")
       process.exit(1);
     }
 
-    const refs = await backend.list(project, env);
+    const refs = await backend.list(project, env, vault);
 
     if (refs.length === 0) {
       const scope = opts.all ? "any project" : `${project}${env ? `.${env}` : ""}`;

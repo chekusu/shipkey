@@ -29,8 +29,8 @@ export class MockBackend implements SecretBackend {
     this.store.set(key, entry.value);
   }
 
-  async list(project?: string, env?: string) {
-    this.calls.push({ method: "list", args: [project, env] });
+  async list(project?: string, env?: string, vault?: string) {
+    this.calls.push({ method: "list", args: [project, env, vault] });
     const refs: SecretRef[] = [];
     for (const [key] of this.store) {
       // Parse "Provider/project-env/field"
@@ -43,7 +43,7 @@ export class MockBackend implements SecretBackend {
       const e = section.slice(dashIndex + 1);
       if (project && proj !== project) continue;
       if (env && e !== env) continue;
-      refs.push({ vault: "mock", provider, project: proj, env: e, field });
+      refs.push({ vault: vault ?? "mock", provider, project: proj, env: e, field });
     }
     return refs;
   }
