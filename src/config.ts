@@ -40,7 +40,17 @@ export async function loadConfig(dir: string): Promise<ShipkeyConfig> {
   }
 }
 
-import type { SecretBackend } from "./backends/types";
+import type { SecretBackend, SecretRef } from "./backends/types";
+
+export function configuredSecretRefs(config: ShipkeyConfig, env = "prod"): Map<string, SecretRef> {
+  const refs = new Map<string, SecretRef>();
+  for (const [provider, entry] of Object.entries(config.providers ?? {})) {
+    for (const field of entry.fields) {
+      refs.set(field, { vault: config.vault, project: config.project, env, provider, field });
+    }
+  }
+  return refs;
+}
 
 /**
  * Build a map of env key → inline reference (e.g. op:// URI).
@@ -52,20 +62,8 @@ export function buildSecretRefMap(
   env = "prod"
 ): Map<string, string | null> {
   const map = new Map<string, string | null>();
-  if (!config.providers) return map;
-
-  for (const [providerName, provider] of Object.entries(config.providers)) {
-    for (const field of provider.fields) {
-      const ref = {
-        vault: config.vault,
-        provider: providerName,
-        project: config.project,
-        env,
-        field,
-      };
-      const inlineRef = backend.buildInlineRef?.(ref) ?? null;
-      map.set(field, inlineRef);
-    }
+  for (const [field, ref] of configuredSecretRefs(config, env)) {
+    map.set(field, backend.buildInlineRef?.(ref) ?? null);
   }
   return map;
 }

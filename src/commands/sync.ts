@@ -1,12 +1,12 @@
 import { Command } from "commander";
 import { resolve } from "path";
 import { getBackend } from "../backends";
-import type { SecretBackend } from "../backends/types";
+import type { SecretBackend, SecretRef } from "../backends/types";
 import { GitHubTarget } from "../targets/github";
 import { TICK, CROSS, ARROW } from "../symbols";
 import { CloudflareTarget } from "../targets/cloudflare";
 import type { SyncTarget } from "../targets/types";
-import { loadConfig, buildSecretRefMap } from "../config";
+import { loadConfig, configuredSecretRefs } from "../config";
 import type { TargetConfig } from "../config";
 
 const TARGETS: Record<string, SyncTarget> = {
@@ -16,7 +16,7 @@ const TARGETS: Record<string, SyncTarget> = {
 
 async function resolveSecret(
   nameOrRef: string,
-  refMap: Map<string, string | null>,
+  refMap: Map<string, SecretRef>,
   backend: SecretBackend
 ): Promise<{ name: string; value: string }> {
   // For 1Password backend, check if it's a direct op:// reference
@@ -25,32 +25,25 @@ async function resolveSecret(
     return { name: nameOrRef, value };
   }
 
-  // Look up env key name via the ref map
-  const inlineRef = refMap.get(nameOrRef);
-  if (inlineRef && "readRaw" in backend) {
-    // Backend supports direct URI reading (1Password)
-    const value = await (backend as any).readRaw(inlineRef);
-    return { name: nameOrRef, value };
-  }
+  const ref = refMap.get(nameOrRef);
+  if (ref) return { name: nameOrRef, value: await backend.read(ref) };
 
-  // No inline ref or backend doesn't support readRaw — not resolvable via this path
-  // This happens for Bitwarden where we need to resolve through the config
   throw new Error(
     `Cannot resolve secret "${nameOrRef}". Ensure it's configured in providers in shipkey.json.`
   );
 }
 
-async function syncTarget(
+export async function syncTarget(
   target: SyncTarget,
   config: TargetConfig,
-  refMap: Map<string, string | null>,
+  refMap: Map<string, SecretRef>,
   backend: SecretBackend
-): Promise<void> {
+): Promise<number> {
   console.log(`Syncing to ${target.name}...\n`);
 
   if (!(await target.isAvailable())) {
     console.error(`Error: ${target.installHint()}`);
-    return;
+    return 1;
   }
 
   let totalSynced = 0;
@@ -112,6 +105,7 @@ async function syncTarget(
   } else {
     console.log(`\n  Done. ${totalSynced} secrets synced.\n`);
   }
+  return totalFailed;
 }
 
 export const syncCommand = new Command("sync")
@@ -139,7 +133,7 @@ export const syncCommand = new Command("sync")
       process.exit(1);
     }
 
-    const refMap = buildSecretRefMap(config, backend);
+    const refMap = configuredSecretRefs(config);
 
     // Determine which targets to sync
     const targetNames = targetArg
@@ -152,6 +146,7 @@ export const syncCommand = new Command("sync")
         console.error(
           `Unknown target: ${name}. Available: ${Object.keys(TARGETS).join(", ")}`
         );
+        process.exitCode = 1;
         continue;
       }
 
@@ -164,6 +159,6 @@ export const syncCommand = new Command("sync")
         continue;
       }
 
-      await syncTarget(target, targetConfig, refMap, backend);
+      if (await syncTarget(target, targetConfig, refMap, backend)) process.exitCode = 1;
     }
   });

@@ -1,10 +1,25 @@
 import { describe, test, expect } from "bun:test";
 import { MockBackend } from "../helpers/mock-backend";
-import { buildSecretRefMap } from "../../src/config";
+import { syncTarget } from "../../src/commands/sync";
+import { buildSecretRefMap, configuredSecretRefs } from "../../src/config";
 import { OnePasswordBackend } from "../../src/backends/onepassword";
 import { BitwardenBackend } from "../../src/backends/bitwarden";
 
 describe("sync command logic", () => {
+  test("syncs configured fields through a backend without inline references and counts failures", async () => {
+    const backend = new MockBackend();
+    backend.seed("Demo", "myapp", "prod", "FIELD", "fixture");
+    const refs = configuredSecretRefs({ vault: "shipkey", project: "myapp", providers: { Demo: { fields: ["FIELD"] } } });
+    const target = {
+      name: "test", isAvailable: async () => true, checkStatus: async () => "ready" as const, installHint: () => "",
+      sync: async (items: { name: string; value: string }[]) => {
+        expect(items).toEqual([{ name: "FIELD", value: "fixture" }]);
+        return { success: ["FIELD"], failed: [] };
+      },
+    };
+    expect(await syncTarget(target, { destination: ["FIELD", "MISSING"] }, refs, backend)).toBe(1);
+  });
+
   test("buildSecretRefMap produces resolvable refs for 1Password", () => {
     const config = {
       project: "myapp",
